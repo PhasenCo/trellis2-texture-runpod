@@ -105,6 +105,25 @@ def get_pipeline():
 
         Trellis2TexturingPipeline.preprocess_mesh = preprocess_avec_uv
 
+        # Avec des UV d'entrée, `postprocess_mesh` reprend `mesh.vertices` et
+        # `mesh.vertex_normals` de trimesh TELS QUELS — tableaux en lecture seule — puis
+        # les modifie sur place pour passer en repère glTF : « assignment destination is
+        # read-only ». (Sans UV, le chemin officiel recrée ses tableaux en redépliant et ne
+        # voit jamais l'erreur.) On lui passe des copies modifiables.
+        post_origine = Trellis2TexturingPipeline.postprocess_mesh
+
+        class _MaillageModifiable:
+            def __init__(self, mesh):
+                self.vertices = np.array(mesh.vertices, dtype=np.float64, copy=True)
+                self.faces = np.array(mesh.faces, dtype=np.int64, copy=True)
+                self.vertex_normals = np.array(mesh.vertex_normals, dtype=np.float64, copy=True)
+                self.visual = mesh.visual
+
+        def postprocess_modifiable(self, mesh, *args, **kwargs):
+            return post_origine(self, _MaillageModifiable(mesh), *args, **kwargs)
+
+        Trellis2TexturingPipeline.postprocess_mesh = postprocess_modifiable
+
         pipe = Trellis2TexturingPipeline.from_pretrained(model_dir, CONFIG)
         # Mêmes correctifs que le worker de base : BiRefNet en float32, alias des couches DINOv3.
         if getattr(pipe, "rembg_model", None) is not None:
