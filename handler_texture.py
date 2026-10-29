@@ -159,6 +159,18 @@ def handler(job):
         if resolution not in RESOLUTIONS or texture_size not in TEXTURE_SIZES:
             raise ValueError(f"resolution {RESOLUTIONS}, texture_size {TEXTURE_SIZES}")
         seed = int(entree.get("seed", 42))
+        # Réglages de l'échantillonneur de texture (défauts officiels : 12 pas, guidage 1,0
+        # sur [0,6 ; 0,9]). Un guidage plus fort fait coller la texture à l'image.
+        echantillonneur = {}
+        if entree.get("steps") is not None:
+            echantillonneur["steps"] = max(4, min(50, int(entree["steps"])))
+        if entree.get("guidance_strength") is not None:
+            echantillonneur["guidance_strength"] = max(0.0, min(15.0, float(entree["guidance_strength"])))
+        if entree.get("guidance_interval") is not None:
+            debut_g, fin_g = entree["guidance_interval"]
+            echantillonneur["guidance_interval"] = [float(debut_g), float(fin_g)]
+        if entree.get("guidance_rescale") is not None:
+            echantillonneur["guidance_rescale"] = float(entree["guidance_rescale"])
         garder_uv = bool(entree.get("keep_uv", True))
         glb = lire_octets(entree["mesh"], bool(entree.get("mesh_gzip")))
         maillage = trimesh.load(io.BytesIO(glb), file_type="glb", force="mesh", process=False)
@@ -180,7 +192,9 @@ def handler(job):
         pipe._garder_uv = garder_uv and a_des_uv
         print(f"🎨 Texturage : {len(maillage.faces)} faces, UV d'entrée {'gardées' if pipe._garder_uv else 'non'}, "
               f"résolution {resolution}, texture {texture_size}", flush=True)
-        sortie = pipe.run(maillage, image, seed=seed, resolution=resolution, texture_size=texture_size)
+        print(f"   échantillonneur : {echantillonneur or 'défauts'}", flush=True)
+        sortie = pipe.run(maillage, image, seed=seed, resolution=resolution, texture_size=texture_size,
+                          tex_slat_sampler_params=echantillonneur)
 
         # Mêmes sommets, mêmes faces, mêmes UV : on remet nos coordonnées d'origine
         # (le pipeline les avait normalisées dans le cube unité et permutées Y/Z).

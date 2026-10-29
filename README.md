@@ -11,5 +11,5 @@ Endpoint RunPod : GPU ≥ 24 Go, disque 60 Go, variable `HF_TOKEN` (compte Huggi
 accepté la licence de `facebook/dinov3-vitl16-pretrain-lvd1689m`, modèle à accès restreint).
 
 Entrée : `mesh` (base64 ou URL d'un .glb), `image` (base64, data URL ou URL), `output_transport:
-"trellis-files-v1"`, `resolution` 512|1024, `texture_size` 1024|2048|4096, `seed`, `keep_uv`.
+"trellis-files-v1"`, `resolution` 512|1024, `texture_size` 1024|2048|4096, `seed`, `keep_uv`, `steps`, `guidance_strength`, `guidance_interval`, `guidance_rescale`.
 Sortie : le `.glb` texturé, par `/stream` (protocole trellis-files-v1).
