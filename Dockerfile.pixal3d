@@ -29,10 +29,21 @@ ENV TORCH_HOME=/opt/torch \
 #    (A5000/3090 = 8.6, Ada = 8.9) pour garder une compilation de durée raisonnable.
 RUN pip freeze | grep -iE '^(torch|torchvision|torchaudio|numpy|transformers|huggingface[-_]hub|safetensors|pillow)==' > /tmp/contraintes.txt \
     && pip install --no-cache-dir -c /tmp/contraintes.txt meshlib scipy \
-    && NATTEN_CUDA_ARCH="8.6;8.9" NATTEN_N_WORKERS=4 MAX_JOBS=4 \
+    && NATTEN_WITH_CUDA=1 NATTEN_CUDA_ARCH="8.6;8.9" NATTEN_N_WORKERS=4 MAX_JOBS=4 \
        pip install --no-cache-dir --no-build-isolation -c /tmp/contraintes.txt "natten==0.17.5" \
     && rm /tmp/contraintes.txt \
-    && python -c "import natten, meshlib.mrmeshpy; print('natten', natten.__version__)"
+    && python -c "import meshlib.mrmeshpy" \
+    && python - <<'PY'
+# Pas de GPU au build : `import natten` interroge le pilote et échoue. On vérifie seulement que
+# la bibliothèque CUDA compilée est bien là (sans NATTEN_WITH_CUDA=1, setup.py compile en CPU
+# seul faute de torch.cuda.is_available() — roue de 4 Mo inutilisable sur GPU).
+import glob, importlib.util, os
+dossier = os.path.dirname(importlib.util.find_spec("natten").origin)
+libs = glob.glob(os.path.join(dossier, "libnatten*.so"))
+tailles = [os.path.getsize(f) for f in libs]
+print("natten :", libs, tailles)
+assert libs and max(tailles) > 20_000_000, "natten compilé sans noyaux CUDA"
+PY
 
 # 2. Code `trellis2/` modifié de ComfyUI-Trellis2, DANS UN DOSSIER À PART : le /app/trellis2 de
 #    l'image de base (TRELLIS.2 officiel) reste intact. handler_pixal3d.py place ce dossier en
