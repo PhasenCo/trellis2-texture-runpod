@@ -1,0 +1,12 @@
+# Image Pixal3D corrigée SANS tout reconstruire : on part de l'image déjà publiée (natten
+# compilé, poids en place) et on n'ajoute que les correctifs de code et le handler.
+# Le Dockerfile.pixal3d complet applique les mêmes étapes pour les prochaines constructions.
+ARG BASE=ghcr.io/phasenco/trellis2-texture-runpod:pixal3d-sha-3df8df1
+FROM ${BASE}
+
+WORKDIR /app
+COPY pixal3d_correctifs.py ./
+RUN python pixal3d_correctifs.py ${PIXAL3D_SRC}
+COPY pixal3d_stubs ${PIXAL3D_STUBS}
+COPY handler_pixal3d.py result_transport.py ./
+CMD ["python", "-u", "handler_pixal3d.py"]

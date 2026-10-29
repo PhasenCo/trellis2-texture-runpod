@@ -85,6 +85,8 @@ snapshot_download('microsoft/TRELLIS.2-4B', local_dir='${PIXAL3D_MODEL_DIR}', al
     && test -f ${PIXAL3D_MODEL_DIR}/ckpts/shape_enc_next_dc_f16c32_fp16.safetensors
 
 WORKDIR /app
+COPY pixal3d_correctifs.py ./
+RUN python pixal3d_correctifs.py ${PIXAL3D_SRC}
 COPY pixal3d_stubs ${PIXAL3D_STUBS}
 COPY handler_pixal3d.py result_transport.py ./
 CMD ["python", "-u", "handler_pixal3d.py"]
