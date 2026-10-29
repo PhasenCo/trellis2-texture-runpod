@@ -42,7 +42,10 @@ jobs:
 
   # Second moteur : Pixal3D (texturage à partir d'une vue posée). Tags `pixal3d-latest` et
   # `pixal3d-sha-<court>` pour ne pas toucher aux tags `latest` / `sha-…` du moteur TRELLIS.2.
+  # EN PAUSE (29/10/2026) : TRELLIS.2 guidage 6 retenu. Construit seulement sur lancement
+  # manuel (~2 h : compilation natten) ; image testée : pixal3d-fix-sha-6770351.
   image-pixal3d:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

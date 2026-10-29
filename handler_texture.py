@@ -21,6 +21,7 @@ Entrée (`input`) :
   texture_size     1024 | 2048 | 4096 (défaut 2048)
   seed             entier (défaut 42)
   keep_uv          true (défaut) : garder les UV d'entrée ; false : laisser TRELLIS déplier
+  steps, guidance_strength (défaut 6,0 ; officiel 1,0), guidance_interval, guidance_rescale
 Sortie : un seul fichier « glb » par /stream (protocole trellis-files-v1).
 """
 
@@ -52,6 +53,7 @@ from result_transport import stream_files
 CONFIG = "texturing_pipeline.sb.json"
 RESOLUTIONS = (512, 1024)
 TEXTURE_SIZES = (1024, 2048, 4096)
+GUIDAGE_DEFAUT = 6.0
 
 pipeline = None
 pipeline_error = None
@@ -160,8 +162,10 @@ def handler(job):
             raise ValueError(f"resolution {RESOLUTIONS}, texture_size {TEXTURE_SIZES}")
         seed = int(entree.get("seed", 42))
         # Réglages de l'échantillonneur de texture (défauts officiels : 12 pas, guidage 1,0
-        # sur [0,6 ; 0,9]). Un guidage plus fort fait coller la texture à l'image.
-        echantillonneur = {}
+        # sur [0,6 ; 0,9]). Un guidage plus fort fait coller la texture à l'image : 6 par
+        # défaut ici (essais du 29/10/2026 sur un pied en marbre : motif fidèle et stable,
+        # préféré à Pixal3D et au guidage officiel).
+        echantillonneur = {"guidance_strength": GUIDAGE_DEFAUT}
         if entree.get("steps") is not None:
             echantillonneur["steps"] = max(4, min(50, int(entree["steps"])))
         if entree.get("guidance_strength") is not None:
