@@ -22,11 +22,15 @@ ENV TORCH_HOME=/opt/torch \
 
 # 1. Dépendances Python en plus : meshlib (importé en tête de representations/mesh/base.py) et
 #    natten (attention de voisinage de NAF). Un fichier de contraintes empêche pip de toucher à
-#    torch, numpy ou transformers de l'image de base. La roue natten correspond à torch 2.6 +
-#    CUDA 12.4 + Python 3.11 (API « legacy » na2d_qk/na2d_av, que NAF sait utiliser).
+#    torch, numpy ou transformers de l'image de base. natten 0.17.5 (API « legacy »
+#    na2d_qk/na2d_av, que NAF sait utiliser) est COMPILÉ depuis la source PyPI : le serveur de
+#    roues précompilées shi-labs.com présente un certificat TLS expiré (constaté le 29/10/2026)
+#    et on ne désactive pas la vérification TLS. Architectures limitées aux GPU de l'endpoint
+#    (A5000/3090 = 8.6, Ada = 8.9) pour garder une compilation de durée raisonnable.
 RUN pip freeze | grep -iE '^(torch|torchvision|torchaudio|numpy|transformers|huggingface[-_]hub|safetensors|pillow)==' > /tmp/contraintes.txt \
     && pip install --no-cache-dir -c /tmp/contraintes.txt meshlib scipy \
-    && pip install --no-cache-dir -c /tmp/contraintes.txt "natten==0.17.5+torch260cu124" -f https://shi-labs.com/natten/wheels/ \
+    && NATTEN_CUDA_ARCH="8.6;8.9" NATTEN_N_WORKERS=4 MAX_JOBS=4 \
+       pip install --no-cache-dir --no-build-isolation -c /tmp/contraintes.txt "natten==0.17.5" \
     && rm /tmp/contraintes.txt \
     && python -c "import natten, meshlib.mrmeshpy; print('natten', natten.__version__)"
 
