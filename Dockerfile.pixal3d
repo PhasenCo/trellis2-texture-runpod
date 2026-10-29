@@ -1,0 +1,75 @@
+# Worker RunPod : texturage d'un maillage existant avec Pixal3D (TencentARC, MIT), à partir
+# d'UNE vue POSÉE (image + caméra connues). Même image de base figée que le worker TRELLIS.2 :
+# CUDA 12.4, torch 2.6, flash-attn, nvdiffrast, cumesh, flex_gemm, o_voxel déjà compilés.
+#
+# Attributions (MIT / Apache-2.0) :
+#   - TencentARC/Pixal3D (code et poids, MIT) : https://huggingface.co/TencentARC/Pixal3D
+#   - visualbruno/ComfyUI-Trellis2 (MIT, dérivé de Microsoft TRELLIS.2) : code `trellis2/` modifié
+#     qui porte `texture_mesh_pixal3d`
+#   - valeoai/NAF (Apache-2.0) : sur-échantillonneur de caractéristiques DINOv3 exigé par le
+#     débruiteur de texture de Pixal3D (chargé par torch.hub)
+#   - microsoft/TRELLIS.2 (MIT) : encodeur de forme
+FROM ghcr.io/huachuhua/trellis2-runpod@sha256:13636bf6bc0ea015255e5965dc1e0205153de34d63b1099e8d74130cbc96e1b9
+
+# Révisions figées (relire avant de les changer : le code Pixal3D bouge vite).
+ARG COMFY_TRELLIS2_COMMIT=b0e84c0f29857a444e8bcb5b9be2ea218e96efd0
+ARG NAF_COMMIT=37f2dfc180f2de53d98bd601109c0da0dd6b0f43
+
+ENV TORCH_HOME=/opt/torch \
+    PIXAL3D_SRC=/app/pixal3d_src \
+    PIXAL3D_STUBS=/app/pixal3d_stubs \
+    PIXAL3D_MODEL_DIR=/models/Pixal3D
+
+# 1. Dépendances Python en plus : meshlib (importé en tête de representations/mesh/base.py) et
+#    natten (attention de voisinage de NAF). Un fichier de contraintes empêche pip de toucher à
+#    torch, numpy ou transformers de l'image de base. La roue natten correspond à torch 2.6 +
+#    CUDA 12.4 + Python 3.11 (API « legacy » na2d_qk/na2d_av, que NAF sait utiliser).
+RUN pip freeze | grep -iE '^(torch|torchvision|torchaudio|numpy|transformers|huggingface[-_]hub|safetensors|pillow)==' > /tmp/contraintes.txt \
+    && pip install --no-cache-dir -c /tmp/contraintes.txt meshlib scipy \
+    && pip install --no-cache-dir -c /tmp/contraintes.txt "natten==0.17.5+torch260cu124" -f https://shi-labs.com/natten/wheels/ \
+    && rm /tmp/contraintes.txt \
+    && python -c "import natten, meshlib.mrmeshpy; print('natten', natten.__version__)"
+
+# 2. Code `trellis2/` modifié de ComfyUI-Trellis2, DANS UN DOSSIER À PART : le /app/trellis2 de
+#    l'image de base (TRELLIS.2 officiel) reste intact. handler_pixal3d.py place ce dossier en
+#    tête de sys.path avant tout `import trellis2`.
+RUN git clone https://github.com/visualbruno/ComfyUI-Trellis2.git /tmp/ct \
+    && git -C /tmp/ct checkout ${COMFY_TRELLIS2_COMMIT} \
+    && mkdir -p ${PIXAL3D_SRC} \
+    && cp -r /tmp/ct/trellis2 ${PIXAL3D_SRC}/trellis2 \
+    && cp /tmp/ct/LICENSE ${PIXAL3D_SRC}/LICENSE.ComfyUI-Trellis2 \
+    && find ${PIXAL3D_SRC} -name '__pycache__' -prune -exec rm -rf {} + \
+    && rm -rf /tmp/ct
+
+# 3. NAF : dépôt et poids mis dans le cache torch.hub, que le pipeline cherche dans
+#    $TORCH_HOME/hub/valeoai_NAF_* (sinon il téléchargerait depuis GitHub à chaque démarrage).
+RUN git clone https://github.com/valeoai/NAF.git ${TORCH_HOME}/hub/valeoai_NAF_main \
+    && git -C ${TORCH_HOME}/hub/valeoai_NAF_main checkout ${NAF_COMMIT} \
+    && rm -rf ${TORCH_HOME}/hub/valeoai_NAF_main/.git \
+    && python -c "import torch; torch.hub.load_state_dict_from_url('https://github.com/valeoai/NAF/releases/download/model/naf_release.pth', map_location='cpu', progress=False); print('poids NAF en cache')"
+
+# 4. Poids Pixal3D de TEXTURAGE à une vue (~6,5 Go) : débruiteur de texture + décodeur de
+#    texture. Rien de la génération de forme (SS, shape_*), rien des variantes multi-vues (*_mv).
+#    Deux couches : ghcr.io refuse les couches de plus de 10 Go.
+RUN python -c "from huggingface_hub import snapshot_download; \
+snapshot_download('TencentARC/Pixal3D', local_dir='${PIXAL3D_MODEL_DIR}', allow_patterns=[ \
+'pipeline.json', 'LICENSE', 'NOTICE', 'ckpts/tex_dec_next_dc_f16c32_fp16.*'])"
+RUN python -c "from huggingface_hub import snapshot_download; \
+snapshot_download('TencentARC/Pixal3D', local_dir='${PIXAL3D_MODEL_DIR}', allow_patterns=[ \
+'ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.*'])"
+
+# 5. Encodeur de forme TRELLIS.2 (~0,7 Go), absent de Pixal3D. Son décodeur de forme est
+#    identique dans les deux dépôts : c'est la moitié qui met le maillage dans l'espace latent
+#    de Pixal3D. Posé dans ckpts/ de Pixal3D, là où le pipeline le cherche en premier.
+RUN python -c "from huggingface_hub import snapshot_download; \
+snapshot_download('microsoft/TRELLIS.2-4B', local_dir='${PIXAL3D_MODEL_DIR}', allow_patterns=[ \
+'ckpts/shape_enc_next_dc_f16c32_fp16.*'])" \
+    && rm -rf ${PIXAL3D_MODEL_DIR}/.cache \
+    && test -f ${PIXAL3D_MODEL_DIR}/ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors \
+    && test -f ${PIXAL3D_MODEL_DIR}/ckpts/tex_dec_next_dc_f16c32_fp16.safetensors \
+    && test -f ${PIXAL3D_MODEL_DIR}/ckpts/shape_enc_next_dc_f16c32_fp16.safetensors
+
+WORKDIR /app
+COPY pixal3d_stubs ${PIXAL3D_STUBS}
+COPY handler_pixal3d.py result_transport.py ./
+CMD ["python", "-u", "handler_pixal3d.py"]
